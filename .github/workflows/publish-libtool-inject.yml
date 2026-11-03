@@ -1,0 +1,55 @@
+# Builds crash-safer libTool (LIBTOOL_INJECT_PAYLOAD + delayed menu) and pushes to lib.so-loader.
+name: Publish libTool-inject.so
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout conRentV1
+        uses: actions/checkout@v4
+        with:
+          repository: panelforsale080-byte/conRentV1
+          path: conRentV1
+
+      - uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r26d
+          add-to-path: false
+
+      - name: Build inject payload
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          set -euo pipefail
+          "${ANDROID_NDK_HOME}/ndk-build" \
+            -C conRentV1/app/src/main \
+            NDK_PROJECT_PATH=. \
+            APP_BUILD_SCRIPT=jni/Android.mk \
+            NDK_APPLICATION_MK=jni/Application.mk \
+            NDK_LIBS_OUT=libs \
+            NDK_OUT=obj \
+            APP_CPPFLAGS=-DLIBTOOL_INJECT_PAYLOAD \
+            -j"$(nproc)"
+          ls -lh conRentV1/app/src/main/libs/arm64-v8a/libTool.so
+
+      - name: Push to lib.so-loader
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/panelforsale080-byte/lib.so-loader.git" librepo
+          cp conRentV1/app/src/main/libs/arm64-v8a/libTool.so librepo/libTool-inject.so
+          cd librepo
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add libTool-inject.so
+          git diff --staged --quiet && echo "No change" && exit 0
+          git commit -m "Update libTool-inject.so (LIBTOOL_INJECT_PAYLOAD build)"
+          git push origin main

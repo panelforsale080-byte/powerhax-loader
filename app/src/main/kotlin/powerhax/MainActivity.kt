@@ -57,8 +57,8 @@ class MainActivity : AppCompatActivity() {
         const val DEFAULT_GAME_PACKAGE = "com.mobile.legends" // MLBB; was CODM from panel
         const val LIBRARY_FILE_NAME = "libTool.so"
         private const val TAG = "AstralMainActivity"
-        const val LIBRARY_DOWNLOAD_URL =
-            "https://raw.githubusercontent.com/panelforsale080-byte/lib.so-loader/main/libTool.so"
+        /** Resolved at download time; prefers libTool-inject.so when published on lib.so-loader. */
+        var libraryDownloadUrl: String = LibraryDownloadUrls.LEGACY_FULL
     }
 
     init {
@@ -724,7 +724,12 @@ class MainActivity : AppCompatActivity() {
     private fun proceedWithDownload() {
         val detectedVpn = SplashActivity.getDetectedVPN()
         if (detectedVpn == null) {
-            downloadLibraryIfNeeded(this@MainActivity, LIBRARY_DOWNLOAD_URL, LIBRARY_FILE_NAME) { success ->
+            lifecycleScope.launch(Dispatchers.IO) {
+                libraryDownloadUrl = LibraryDownloadUrls.resolvePrimary()
+                withContext(Dispatchers.Main) {
+                    injectUiLog.line("Library URL: $libraryDownloadUrl")
+                }
+                downloadLibraryIfNeeded(this@MainActivity, libraryDownloadUrl, LIBRARY_FILE_NAME) { success ->
                 if (success) {
                     showToast("Download successful")
                     assetExtractor.extractAll()
@@ -748,6 +753,7 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     resetLoginState("FAILED TO DOWNLOAD, \nRETRY AGAIN.")
                     isReadyToInject = false
+                }
                 }
             }
         } else {
@@ -863,8 +869,27 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        injectUiLog.line("Unity target: pid=${targetUnity.pid}")
-        injectUiLog.line("Cmdline: ${targetUnity.label}")
+        var activeUnity = targetUnity
+        injectUiLog.line("Unity target: pid=${activeUnity.pid}")
+        injectUiLog.line("Cmdline: ${activeUnity.label}")
+
+        if (gspace) {
+            val settleSec = maxOf(delaySeconds, 15)
+            injectUiLog.line("GSpace settle ${settleSec}s — keep MLBB in lobby (reduces crash)")
+            delay(settleSec * 1000L)
+            val refreshed = withContext(Dispatchers.IO) { ProcessFinder.findUnityKills() }
+            if (refreshed != null) {
+                activeUnity = refreshed
+                injectUiLog.line("Unity after settle: pid=${activeUnity.pid}")
+            } else {
+                injectUiLog.line("Unity gone after settle — reopen MLBB")
+                withContext(Dispatchers.Main) {
+                    showToast("MLBB closed — open lobby again")
+                    finishInjectUi(success = false)
+                }
+                return
+            }
+        }
 
         val directStage = withContext(Dispatchers.IO) {
             MlbbInjectStaging.tryDirectCopy(gamePackage, libraryFile, gspace)
@@ -884,7 +909,7 @@ class MainActivity : AppCompatActivity() {
 
         val preferred = loaderPreferences.getPreferredInjectTarget()
         val targets = InjectionCommandBuilder.injectTargetAttempts(
-            unity = targetUnity,
+            unity = activeUnity,
             gamePackage = gamePackage,
             inGspace = gspace,
             preferredTarget = preferred
@@ -894,7 +919,9 @@ class MainActivity : AppCompatActivity() {
         var loaded = false
         var lastExit = -1
         var winningTarget: String? = null
+        var processCrashed = false
         for (target in targets) {
+            if (processCrashed) break
             val cmd = InjectionCommandBuilder.build(
                 cacheDirectory = cacheDirectory,
                 library = library,
@@ -913,7 +940,7 @@ class MainActivity : AppCompatActivity() {
 
             val out = shellResult.output.trim()
             if (out.isNotEmpty()) {
-                out.lines().take(15).forEach { injectUiLog.line(it) }
+                out.lines().take(20).forEach { injectUiLog.line(it) }
                 if (out.contains("method 2", ignoreCase = true) ||
                     out.contains("method2", ignoreCase = true)
                 ) {
@@ -923,8 +950,18 @@ class MainActivity : AppCompatActivity() {
 
             delay(1200)
             val verifyPid = withContext(Dispatchers.IO) {
-                ProcessFinder.findUnityKills()?.pid ?: targetUnity.pid
+                ProcessFinder.findUnityKills()?.pid ?: activeUnity.pid
             }
+            val analysis = withContext(Dispatchers.IO) {
+                InjectShellAnalyzer.analyze(shellResult.output, activeUnity.pid)
+            }
+            if (analysis.processTerminated) {
+                processCrashed = true
+                analysis.userHints.forEach { injectUiLog.line(it) }
+                injectUiLog.line("Stopped — no extra inject attempts (would crash more)")
+                break
+            }
+
             loaded = withContext(Dispatchers.IO) { InjectVerifier.isLibLoaded(verifyPid) }
             if (loaded) {
                 winningTarget = target
@@ -942,6 +979,11 @@ class MainActivity : AppCompatActivity() {
                     injectUiLog.line("=== INJECT SUCCESS ===")
                     winningTarget?.let { injectUiLog.line("Saved target for next time: $it") }
                     showToast("Inject OK — Unity process")
+                    loginButton.text = "RE-INJECT"
+                }
+                processCrashed -> {
+                    injectUiLog.line("=== MLBB CRASHED DURING INJECT ===")
+                    showToast("Game crashed — reopen lobby, wait, inject once")
                     loginButton.text = "RE-INJECT"
                 }
                 lastExit != 0 -> {
