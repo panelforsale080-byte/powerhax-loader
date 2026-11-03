@@ -27,7 +27,19 @@ object InjectionCommandBuilder {
         }
         val loaderPath = "${cacheDirectory.absolutePath}/$loaderName"
 
-        return "$loaderPath $packageTarget ${library.gamePackage} $libraryPath $keyEntry ${library.jniKey} $rootArgument"
+        val keyPart = if (library.jniKey.isNotBlank()) {
+            "$keyEntry ${library.jniKey}"
+        } else {
+            ""
+        }
+        return listOf(
+            loaderPath,
+            packageTarget,
+            library.gamePackage,
+            libraryPath,
+            keyPart,
+            rootArgument
+        ).filter { it.isNotBlank() }.joinToString(" ")
     }
 
     private const val ROOT_TOKEN = "995458a788"

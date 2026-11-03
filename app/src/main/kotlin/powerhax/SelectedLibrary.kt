@@ -1,5 +1,6 @@
 package astral.loader
 
+import android.os.Build
 import org.json.JSONObject
 
 data class SelectedLibrary(
@@ -34,6 +35,13 @@ data class SelectedLibrary(
                 return mlbb
             }
             return raw
+        }
+
+        fun resolveArchitecture(catalogArch: String): String {
+            if (catalogArch.equals("32bit", ignoreCase = true)) return "32bit"
+            if (catalogArch.equals("64bit", ignoreCase = true)) return "64bit"
+            val primary = Build.SUPPORTED_ABIS.firstOrNull().orEmpty()
+            return if (primary.contains("64", ignoreCase = true)) "64bit" else "32bit"
         }
     }
 }

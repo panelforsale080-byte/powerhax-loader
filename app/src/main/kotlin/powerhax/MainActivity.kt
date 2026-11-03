@@ -736,49 +736,87 @@ class MainActivity : AppCompatActivity() {
         Log.i(TAG, "Inject command: $injectionCommand")
         if (radioAuto.isChecked) {
             launchGame(gamePackage)
-            lifecycleScope.launch(Dispatchers.Main) {
+            lifecycleScope.launch {
                 delay(1000)
                 delay(delaySeconds * 1000L)
-                logProcessBeforeInject()
-                commandRunner.run(injectionCommand)
-                scheduleInjectionStatus()
+                runInjectPipeline(outputFile, gamePackage, injectionCommand)
             }
         } else {
-            logProcessBeforeInject()
-            commandRunner.run(injectionCommand)
-            scheduleInjectionStatus()
+            lifecycleScope.launch {
+                runInjectPipeline(outputFile, gamePackage, injectionCommand)
+            }
         }
     }
 
-    private fun libraryForInjection(): SelectedLibrary {
-        val pkg = SelectedLibrary.normalizeGamePackage(selectedLibrary.gamePackage)
-        return selectedLibrary.copy(gamePackage = pkg)
-    }
-
-    private fun logProcessBeforeInject() {
-        val proc = ProcessFinder.findMlbb()
-        if (proc != null) {
-            Log.i(TAG, "MLBB process OK pid=${proc.pid} cmdline=${proc.label}")
-            showToast("Process found: pid ${proc.pid}")
-        } else {
-            Log.w(TAG, "MLBB process NOT found (UnityKillsMe / com.mobile.legends)")
-            showToast("Process not found — start MLBB first")
+    private suspend fun runInjectPipeline(
+        libraryFile: File,
+        gamePackage: String,
+        injectionCommand: String
+    ) {
+        val procBefore = withContext(Dispatchers.IO) { ProcessFinder.findMlbb() }
+        withContext(Dispatchers.Main) {
+            if (procBefore != null) {
+                Log.i(TAG, "MLBB process OK pid=${procBefore.pid} cmdline=${procBefore.label}")
+                showToast("Process: pid ${procBefore.pid}")
+            } else {
+                Log.w(TAG, "MLBB process NOT found before inject")
+                showToast("Process not found — open MLBB in lobby first")
+            }
+            if (!commandRunner.hasRootAccess()) {
+                showToast("Root recommended (Method 2/3) for MLBB inject")
+            }
         }
-    }
-    
-    private fun scheduleInjectionStatus() {
-        lifecycleScope.launch(Dispatchers.Main) {
-            delay(3000)
-            showToast("Injection completed")
-            loginButton.text = "RE-INJECT"
-            delay(5000)
-            loginButton.text = "RE-INJECT"
+
+        val gspace = withContext(Dispatchers.IO) { MlbbInjectStaging.detectGspaceFromProc() }
+        val stageScript = MlbbInjectStaging.buildRootCopyScript(gamePackage, libraryFile, gspace)
+        if (stageScript.isNotBlank()) {
+            withContext(Dispatchers.IO) {
+                val stageResult = commandRunner.runSync(stageScript)
+                Log.i(TAG, "Stage libTool.so exit=${stageResult.exitCode}")
+            }
+        }
+
+        val shellResult = withContext(Dispatchers.IO) {
+            commandRunner.runSync(injectionCommand)
+        }
+        Log.i(TAG, "Inject shell exit=${shellResult.exitCode}")
+
+        delay(1500)
+        val procAfter = withContext(Dispatchers.IO) { ProcessFinder.findMlbb() }
+        val loaded = procAfter?.let { InjectVerifier.isLibLoaded(it.pid) } == true
+
+        withContext(Dispatchers.Main) {
+            when {
+                loaded -> {
+                    showToast("Inject OK — libTool in game memory")
+                    loginButton.text = "RE-INJECT"
+                }
+                shellResult.exitCode != 0 -> {
+                    showToast("Inject failed (exit ${shellResult.exitCode}) — check logcat Astral*")
+                    loginButton.text = "RETRY INJECT"
+                }
+                procAfter == null -> {
+                    showToast("Inject ran but game process gone — reopen MLBB")
+                    loginButton.text = "RE-INJECT"
+                }
+                else -> {
+                    showToast("Inject unclear — no libTool in maps. Try Method 3 + root + delay")
+                    loginButton.text = "RE-INJECT"
+                }
+            }
             loginButton.isEnabled = true
             radioGroup.isEnabled = true
             delaySpinner.isEnabled = true
             methodSpinner.isEnabled = true
         }
     }
+
+    private fun libraryForInjection(): SelectedLibrary {
+        val pkg = SelectedLibrary.normalizeGamePackage(selectedLibrary.gamePackage)
+        val arch = SelectedLibrary.resolveArchitecture(selectedLibrary.architecture)
+        return selectedLibrary.copy(gamePackage = pkg, architecture = arch)
+    }
+
     
     private fun launchGame(packageName: String): Boolean {
         return try {
