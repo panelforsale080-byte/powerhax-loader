@@ -214,6 +214,44 @@
                         android:textSize="13sp" />
                 </com.google.android.material.textfield.TextInputLayout>
 
+                <TextView
+                    android:id="@+id/inject_method_label"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="METHOD 2 — tap here to cycle inject method"
+                    android:textColor="@color/loader_text_secondary"
+                    android:textSize="9sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="INJECT LOG"
+                    android:textColor="@color/loader_text_muted"
+                    android:textSize="8sp"
+                    android:textStyle="bold" />
+
+                <ScrollView
+                    android:id="@+id/inject_log_scroll"
+                    android:layout_width="match_parent"
+                    android:layout_height="140dp"
+                    android:layout_marginTop="4dp"
+                    android:background="#0A0E14"
+                    android:fillViewport="true"
+                    android:padding="8dp">
+
+                    <TextView
+                        android:id="@+id/inject_log"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="monospace"
+                        android:text="Waiting for inject…"
+                        android:textColor="@color/loader_text_secondary"
+                        android:textIsSelectable="true"
+                        android:textSize="8sp" />
+                </ScrollView>
+
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/login_button"
                     android:layout_width="match_parent"
@@ -326,7 +364,11 @@
                 <RadioButton android:id="@+id/radio_auto" android:layout_width="1dp" android:layout_height="1dp" />
                 <RadioButton android:id="@+id/radio_manual" android:layout_width="1dp" android:layout_height="1dp" />
             </RadioGroup>
-            <TextView android:id="@+id/root_status" android:layout_width="1dp" android:layout_height="1dp" android:visibility="gone" />
+            <TextView
+                android:id="@+id/root_status"
+                android:layout_width="1dp"
+                android:layout_height="1dp"
+                android:visibility="gone" />
         </LinearLayout>
     </ScrollView>
 

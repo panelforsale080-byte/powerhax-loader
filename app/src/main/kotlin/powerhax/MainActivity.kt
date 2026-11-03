@@ -28,6 +28,7 @@ import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.Spinner
 import android.widget.TextView
+import android.widget.ScrollView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -83,6 +84,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var librarySearch: EditText
     private lateinit var libraryList: LinearLayout
     private lateinit var libraryCount: TextView
+    private lateinit var injectLogView: TextView
+    private lateinit var injectLogScroll: ScrollView
+    private lateinit var injectMethodLabel: TextView
+    private val injectLogBuffer = StringBuilder()
+    private lateinit var injectUiLog: InjectUiLog
     
     private val commandRunner = CommandRunner()
     private val catalogClient = LibraryCatalogClient(SERVER_LIST_URL)
@@ -132,6 +138,10 @@ class MainActivity : AppCompatActivity() {
         radioAuto = findViewById(R.id.radio_auto)
         radioManual = findViewById(R.id.radio_manual)
         rootStatusView = findViewById(R.id.root_status)
+        injectLogView = findViewById(R.id.inject_log)
+        injectLogScroll = findViewById(R.id.inject_log_scroll)
+        injectMethodLabel = findViewById(R.id.inject_method_label)
+        injectUiLog = InjectUiLog { line -> appendInjectLogLine(line) }
         appBanner = findViewById(R.id.app_banner)
         
         Glide.with(this)
@@ -179,6 +189,7 @@ class MainActivity : AppCompatActivity() {
                     else -> "1"
                 }
                 loaderPreferences.saveInjectionMethod(injectionMethod)
+                updateMethodLabel()
             }
             override fun onNothingSelected(parent: AdapterView<*>) {}
         }
@@ -221,6 +232,54 @@ class MainActivity : AppCompatActivity() {
         
         loadLibraryCatalog()
         updateRootStatus()
+        updateMethodLabel()
+        injectMethodLabel.setOnClickListener { cycleInjectionMethod() }
+    }
+
+    private fun cycleInjectionMethod() {
+        val next = when (injectionMethod) {
+            "1" -> "2"
+            "2" -> "3"
+            else -> "1"
+        }
+        injectionMethod = next
+        loaderPreferences.saveInjectionMethod(next)
+        methodSpinner.setSelection(
+            when (next) {
+                "1" -> 0
+                "2" -> 1
+                else -> 2
+            }
+        )
+        updateMethodLabel()
+        injectUiLog.line("Switched to ${InjectionCommandBuilder.methodDescription(next, commandRunner.hasRootAccess())}")
+        showToast("Inject method: $next")
+    }
+
+    private fun appendInjectLogLine(line: String) {
+        runOnUiThread {
+            if (injectLogBuffer.length > 12_000) {
+                injectLogBuffer.delete(0, injectLogBuffer.length - 8_000)
+            }
+            injectLogBuffer.append(line).append('\n')
+            injectLogView.text = injectLogBuffer.toString()
+            injectLogScroll.post { injectLogScroll.fullScroll(View.FOCUS_DOWN) }
+        }
+    }
+
+    private fun clearInjectLog() {
+        injectLogBuffer.clear()
+        injectLogView.text = ""
+    }
+
+    private fun updateMethodLabel() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val rooted = commandRunner.hasRootAccess()
+            val text = InjectionCommandBuilder.methodDescription(injectionMethod, rooted)
+            withContext(Dispatchers.Main) {
+                injectMethodLabel.text = text
+            }
+        }
     }
     
     private fun setupDelaySpinner() {
@@ -725,89 +784,180 @@ class MainActivity : AppCompatActivity() {
         }
         val injectLibrary = libraryForInjection()
         val gamePackage = injectLibrary.gamePackage.ifBlank { DEFAULT_GAME_PACKAGE }
-        Log.i(TAG, "Inject package=$gamePackage method=$injectionMethod")
-        val injectionCommand = InjectionCommandBuilder.build(
-            cacheDirectory = cacheDirectory,
-            library = injectLibrary,
-            libraryFileName = libraryFileName,
-            injectionMethod = injectionMethod,
-            hasRootAccess = commandRunner.hasRootAccess()
-        )
-        Log.i(TAG, "Inject command: $injectionCommand")
+        clearInjectLog()
+        injectUiLog.line("=== INJECT START ===")
+        injectUiLog.line("Package: $gamePackage")
         if (radioAuto.isChecked) {
             launchGame(gamePackage)
             lifecycleScope.launch {
                 delay(1000)
                 delay(delaySeconds * 1000L)
-                runInjectPipeline(outputFile, gamePackage, injectionCommand)
+                runInjectPipeline(
+                    libraryFile = outputFile,
+                    cacheDirectory = cacheDirectory,
+                    libraryFileName = libraryFileName,
+                    gamePackage = gamePackage,
+                    library = injectLibrary
+                )
             }
         } else {
             lifecycleScope.launch {
-                runInjectPipeline(outputFile, gamePackage, injectionCommand)
+                runInjectPipeline(
+                    libraryFile = outputFile,
+                    cacheDirectory = cacheDirectory,
+                    libraryFileName = libraryFileName,
+                    gamePackage = gamePackage,
+                    library = injectLibrary
+                )
             }
         }
     }
 
+    private fun injectTargetAttempts(unity: ProcessFinder.Target, gamePackage: String): List<String> {
+        val attempts = linkedSetOf<String>()
+        attempts += unity.pid.toString()
+        if (unity.label.contains(':')) {
+            attempts += unity.label.trim()
+        }
+        attempts += InjectionCommandBuilder.resolveInjectTarget(unity, gamePackage)
+        attempts += gamePackage
+        return attempts.toList()
+    }
+
     private suspend fun runInjectPipeline(
         libraryFile: File,
+        cacheDirectory: File,
+        libraryFileName: String,
         gamePackage: String,
-        injectionCommand: String
+        library: SelectedLibrary
     ) {
-        val procBefore = withContext(Dispatchers.IO) { ProcessFinder.findMlbb() }
-        withContext(Dispatchers.Main) {
-            if (procBefore != null) {
-                Log.i(TAG, "MLBB process OK pid=${procBefore.pid} cmdline=${procBefore.label}")
-                showToast("Process: pid ${procBefore.pid}")
-            } else {
-                Log.w(TAG, "MLBB process NOT found before inject")
-                showToast("Process not found — open MLBB in lobby first")
-            }
-            if (!commandRunner.hasRootAccess()) {
-                showToast("Root recommended (Method 2/3) for MLBB inject")
-            }
-        }
+        val hasRoot = withContext(Dispatchers.IO) { commandRunner.hasRootAccess() }
+        injectUiLog.line(InjectionCommandBuilder.methodDescription(injectionMethod, hasRoot))
 
         val gspace = withContext(Dispatchers.IO) { MlbbInjectStaging.detectGspaceFromProc() }
-        val stageScript = MlbbInjectStaging.buildRootCopyScript(gamePackage, libraryFile, gspace)
-        if (stageScript.isNotBlank()) {
-            withContext(Dispatchers.IO) {
-                val stageResult = commandRunner.runSync(stageScript)
-                Log.i(TAG, "Stage libTool.so exit=${stageResult.exitCode}")
+        if (gspace) {
+            injectUiLog.line("GSpace/virtual environment detected")
+            if (injectionMethod == "1") {
+                injectUiLog.line("Use METHOD 2 here (loader often rejects -root in virtual)")
             }
         }
 
-        val shellResult = withContext(Dispatchers.IO) {
-            commandRunner.runSync(injectionCommand)
+        injectUiLog.line("Scanning processes…")
+        val initial = withContext(Dispatchers.IO) { ProcessFinder.listMlbbCandidates() }
+        if (initial.isEmpty()) {
+            injectUiLog.line("No MLBB process yet — open game lobby")
+        } else {
+            initial.take(8).forEach { injectUiLog.line("pid=${it.pid} ${it.label}") }
         }
-        Log.i(TAG, "Inject shell exit=${shellResult.exitCode}")
 
-        delay(1500)
-        val procAfter = withContext(Dispatchers.IO) { ProcessFinder.findMlbb() }
-        val loaded = procAfter?.let { InjectVerifier.isLibLoaded(it.pid) } == true
+        injectUiLog.line("Waiting for UnityKills (45s max)…")
+        var unity: ProcessFinder.Target? = null
+        waitLoop@ for (attempt in 0 until 90) {
+            unity = withContext(Dispatchers.IO) { ProcessFinder.findUnityKills() }
+            if (unity != null) break@waitLoop
+            if (attempt % 4 == 0) {
+                val snap = withContext(Dispatchers.IO) { ProcessFinder.listMlbbCandidates() }
+                injectUiLog.line("poll ${attempt + 1}/90 — ${snap.size} proc(s)")
+            }
+            delay(500)
+        }
+
+        val targetUnity = unity
+        if (targetUnity == null) {
+            injectUiLog.line("FAIL: UnityKillsMe process not found")
+            injectUiLog.line("Stay in MLBB lobby/training then RE-INJECT")
+            withContext(Dispatchers.Main) {
+                showToast("UnityKills process not found")
+                finishInjectUi(success = false)
+            }
+            return
+        }
+
+        injectUiLog.line("Unity target: pid=${targetUnity.pid}")
+        injectUiLog.line("Cmdline: ${targetUnity.label}")
+
+        val stageScript = MlbbInjectStaging.buildRootCopyScript(gamePackage, libraryFile, gspace)
+        if (stageScript.isNotBlank()) {
+            injectUiLog.line("Staging libTool.so to game inject dirs…")
+            val stageResult = withContext(Dispatchers.IO) { commandRunner.runSync(stageScript) }
+            injectUiLog.line("Stage exit=${stageResult.exitCode}")
+        } else {
+            injectUiLog.line("Skip staging (missing lib file)")
+        }
+
+        val targets = injectTargetAttempts(targetUnity, gamePackage)
+        injectUiLog.line("libloader targets: ${targets.joinToString(" → ")}")
+
+        var loaded = false
+        var lastExit = -1
+        for (target in targets) {
+            val cmd = InjectionCommandBuilder.build(
+                cacheDirectory = cacheDirectory,
+                library = library,
+                libraryFileName = libraryFileName,
+                injectionMethod = injectionMethod,
+                hasRootAccess = hasRoot,
+                injectTarget = target
+            )
+            injectUiLog.line("---")
+            injectUiLog.line("Command: $cmd")
+            Log.i(TAG, "Inject command: $cmd")
+
+            val shellResult = withContext(Dispatchers.IO) { commandRunner.runSync(cmd) }
+            lastExit = shellResult.exitCode
+            injectUiLog.line("libloader exit=$lastExit")
+
+            val out = shellResult.output.trim()
+            if (out.isNotEmpty()) {
+                out.lines().take(15).forEach { injectUiLog.line(it) }
+                if (out.contains("method 2", ignoreCase = true) ||
+                    out.contains("method2", ignoreCase = true)
+                ) {
+                    injectUiLog.line(">>> Loader recommends METHOD 2 (change in app settings menu)")
+                }
+            }
+
+            delay(1200)
+            val verifyPid = withContext(Dispatchers.IO) {
+                ProcessFinder.findUnityKills()?.pid ?: targetUnity.pid
+            }
+            loaded = withContext(Dispatchers.IO) { InjectVerifier.isLibLoaded(verifyPid) }
+            if (loaded) {
+                injectUiLog.line("OK: libTool.so in /proc/$verifyPid/maps")
+                break
+            }
+            injectUiLog.line("libTool not in maps for pid $verifyPid — try next target")
+        }
 
         withContext(Dispatchers.Main) {
             when {
                 loaded -> {
-                    showToast("Inject OK — libTool in game memory")
+                    injectUiLog.line("=== INJECT SUCCESS ===")
+                    showToast("Inject OK — Unity process")
                     loginButton.text = "RE-INJECT"
                 }
-                shellResult.exitCode != 0 -> {
-                    showToast("Inject failed (exit ${shellResult.exitCode}) — check logcat Astral*")
+                lastExit != 0 -> {
+                    injectUiLog.line("=== INJECT FAILED (exit $lastExit) ===")
+                    showToast("Inject failed — see INJECT LOG")
                     loginButton.text = "RETRY INJECT"
                 }
-                procAfter == null -> {
-                    showToast("Inject ran but game process gone — reopen MLBB")
-                    loginButton.text = "RE-INJECT"
-                }
                 else -> {
-                    showToast("Inject unclear — no libTool in maps. Try Method 3 + root + delay")
+                    injectUiLog.line("=== INJECT UNCLEAR — try METHOD 2 or 3 ===")
+                    showToast("No libTool in Unity maps — METHOD 2 + lobby")
                     loginButton.text = "RE-INJECT"
                 }
             }
-            loginButton.isEnabled = true
-            radioGroup.isEnabled = true
-            delaySpinner.isEnabled = true
-            methodSpinner.isEnabled = true
+            finishInjectUi(success = loaded)
+        }
+    }
+
+    private fun finishInjectUi(success: Boolean) {
+        loginButton.isEnabled = true
+        radioGroup.isEnabled = true
+        delaySpinner.isEnabled = true
+        methodSpinner.isEnabled = true
+        if (!success) {
+            updateMethodLabel()
         }
     }
 

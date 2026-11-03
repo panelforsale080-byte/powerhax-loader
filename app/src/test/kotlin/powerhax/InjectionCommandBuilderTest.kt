@@ -20,10 +20,11 @@ class InjectionCommandBuilderTest {
             library = library,
             libraryFileName = "libTool.so",
             injectionMethod = "1",
-            hasRootAccess = false
+            hasRootAccess = false,
+            injectTarget = "28451"
         )
 
-        assertTrue(command.contains("com.example.game"))
+        assertTrue(command.contains("28451"))
         assertTrue(command.contains("libTool.so"))
         assertTrue(command.contains("test-key"))
     }

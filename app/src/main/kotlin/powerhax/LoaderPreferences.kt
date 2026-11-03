@@ -31,6 +31,6 @@ class LoaderPreferences(context: Context) {
         const val KEY_DELAY = "injection_delay"
         const val KEY_METHOD = "injection_method"
         const val MODE_AUTO = "auto"
-        const val DEFAULT_METHOD = "1"
+        const val DEFAULT_METHOD = "2"
     }
 }

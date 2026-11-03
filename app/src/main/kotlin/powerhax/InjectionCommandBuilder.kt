@@ -9,7 +9,8 @@ object InjectionCommandBuilder {
         library: SelectedLibrary,
         libraryFileName: String,
         injectionMethod: String,
-        hasRootAccess: Boolean
+        hasRootAccess: Boolean,
+        injectTarget: String
     ): String {
         val rootArgument = when {
             injectionMethod == "2" -> ""
@@ -32,14 +33,34 @@ object InjectionCommandBuilder {
         } else {
             ""
         }
+        val target = injectTarget.ifBlank { library.gamePackage }
         return listOf(
             loaderPath,
             packageTarget,
-            library.gamePackage,
+            target,
             libraryPath,
             keyPart,
             rootArgument
         ).filter { it.isNotBlank() }.joinToString(" ")
+    }
+
+    /** libloader64 resolves package name to the wrong PID; UnityKills needs PID or :UnityKillsMe cmdline. */
+    fun resolveInjectTarget(unity: ProcessFinder.Target?, gamePackage: String): String {
+        if (unity != null) {
+            if (unity.isUnityKills && unity.label.contains(':')) {
+                return unity.label.substringBefore('\u0000').trim()
+            }
+            return unity.pid.toString()
+        }
+        return gamePackage
+    }
+
+    fun methodDescription(injectionMethod: String, hasRoot: Boolean): String {
+        return when (injectionMethod) {
+            "2" -> "METHOD 2 — no -root (GSpace / virtual / non-root inject)"
+            "3" -> "METHOD 3 — -root -hide_solist -hide_maps"
+            else -> if (hasRoot) "METHOD 1 — -root when SU available" else "METHOD 1 — no root flag"
+        }
     }
 
     private const val ROOT_TOKEN = "995458a788"
