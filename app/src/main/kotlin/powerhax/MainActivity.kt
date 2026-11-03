@@ -81,9 +81,9 @@ class MainActivity : AppCompatActivity() {
     
     private val commandRunner = CommandRunner()
     private val catalogClient = LibraryCatalogClient(SERVER_LIST_URL)
-    private val licenseValidator by lazy { PanelLicenseValidator(contentResolver) }
     private val assetExtractor by lazy { AssetExtractor(assets, cacheDir) }
     private var isReadyToInject: Boolean = false
+    private var isLoadingLibrary: Boolean = false
     private var remoteLibrarySize: Int = 0
     private var selectedLibrary = SelectedLibrary()
     private var delaySeconds: Int = 0
@@ -120,6 +120,8 @@ class MainActivity : AppCompatActivity() {
         methodSpinner = findViewById(R.id.method_spinner)
         licenseKeyInput = findViewById(R.id.input_key)
         licenseKeyInputLayout = findViewById(R.id.input_layout)
+        findViewById<View>(R.id.license_key_label).visibility = View.GONE
+        licenseKeyInputLayout.visibility = View.GONE
         loginButton = findViewById(R.id.login_button)
         radioGroup = findViewById(R.id.radioGroup)
         radioAuto = findViewById(R.id.radio_auto)
@@ -182,39 +184,17 @@ class MainActivity : AppCompatActivity() {
         }
 
         loginButton.setOnClickListener {
-            if (!isReadyToInject) {
-                showToast("Please wait...")
-                loginButton.isEnabled = false
-                licenseKeyInput.isEnabled = false
-                licenseKeyInput.error = null
-                librarySpinner.isEnabled = false
-                delaySpinner.isEnabled = false
-                methodSpinner.isEnabled = false
-                radioGroup.isEnabled = false
-                val licenseKey = licenseKeyInput.text?.toString()?.trim()
-                if (licenseKey.isNullOrEmpty()) {
-                    resetLoginState("License key cannot be empty")
-                } else {
-                    val detectedVpn = SplashActivity.getDetectedVPN()
-                    if (detectedVpn != null) {
-                        SplashActivity.showDialog(
-                            this,
-                            "VPN DETECTED",
-                            "Detected VPN Interface:\n$detectedVpn\n\nPlease disable your VPN and try again."
-                        )
-                    } else {
-                        validateLicense(licenseKey)
-                    }
-                }
-            } else if (isReadyToInject) {
+            if (isReadyToInject) {
                 injectLibrary(LIBRARY_FILE_NAME)
                 showToast("Injecting, please wait...")
                 loginButton.isEnabled = false
                 radioGroup.isEnabled = false
                 delaySpinner.isEnabled = false
                 methodSpinner.isEnabled = false
+            } else if (!isLoadingLibrary) {
+                beginLibraryLoad()
             }
-        } 
+        }
         
         appBanner.setOnLongClickListener {
             appBanner.alpha = 0.7f
@@ -248,20 +228,11 @@ class MainActivity : AppCompatActivity() {
         methodSpinner.adapter = SimpleSpinnerAdapter(this, methodOptions)
     }
     
-    private fun saveLicenseKeyForLibrary(libraryName: String, licenseKey: String) {
-        loaderPreferences.licenses.saveForLibrary(libraryName, licenseKey)
-    }
-
-    private fun getLicenseKeyForLibrary(libraryName: String): String? {
-        return loaderPreferences.licenses.getForLibrary(libraryName)
-    }
-
     private fun applyLibrarySelection(position: Int) {
         if (position !in filteredLibraries.indices) return
 
         val selectedLibraryJson = filteredLibraries[position]
         handleSelectedJsonData(selectedLibraryJson)
-        licenseKeyInput.setText(getLicenseKeyForLibrary(selectedLibrary.name).orEmpty())
     }
     
     private fun loadLibraryCatalog() {
@@ -471,7 +442,6 @@ class MainActivity : AppCompatActivity() {
             return
         }
         handleSelectedJsonData(library)
-        licenseKeyInput.setText(getLicenseKeyForLibrary(selectedLibrary.name).orEmpty())
         val filteredPosition = filteredLibraries.indexOfFirst {
             it.optString("NAME") == library.optString("NAME")
         }
@@ -586,11 +556,14 @@ class MainActivity : AppCompatActivity() {
         }
         if (maintenance) {
             isReadyToInject = false
+            isLoadingLibrary = false
             loginButton.text = "UNAVAILABLE"
             loginButton.isEnabled = false
         } else {
+            isReadyToInject = false
             loginButton.isEnabled = true
-            if (!isReadyToInject) loginButton.text = "LOGIN"
+            loginButton.text = if (isLoadingLibrary) "LOADING..." else "LOAD LIBRARY"
+            beginLibraryLoad()
         }
         val logoUrl = jsonObject.optString("LOGO")
         if (logoUrl.isNotBlank()) {
@@ -642,25 +615,30 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun validateLicense(licenseKey: String) {
-        lifecycleScope.launch(Dispatchers.IO) {
-            val validationEndpoint = selectedLibrary.connectUrl.ifBlank { PANEL_URL }
-            val validationGame = selectedLibrary.type.ifBlank { DEFAULT_GAME_TYPE }
-            val validationResult = licenseValidator.validate(licenseKey, validationEndpoint, validationGame)
-            withContext(Dispatchers.Main) {    
-                if (licenseValidator.isSuccess(validationResult)) {
-                    saveLicenseKeyForLibrary(selectedLibrary.name, licenseKey)
-                    saveSelectedLibrary(selectedLibrary.name)
-                    showToast("Login successful")
-                    loginButton.text = "INJECT"
-                    licenseKeyInputLayout.visibility = View.GONE
-                    appBanner.isEnabled = false
-                    proceedWithDownload()
-                } else {
-                    resetLoginState(validationResult)
-                }
-            }
+    private fun beginLibraryLoad() {
+        if (isLoadingLibrary || isReadyToInject) return
+        if (selectedLibrary.downloadUrl.isBlank()) {
+            resetLoginState("Library download URL unavailable")
+            return
         }
+        val detectedVpn = SplashActivity.getDetectedVPN()
+        if (detectedVpn != null) {
+            SplashActivity.showDialog(
+                this,
+                "VPN DETECTED",
+                "Detected VPN Interface:\n$detectedVpn\n\nPlease disable your VPN and try again."
+            )
+            return
+        }
+        isLoadingLibrary = true
+        loginButton.isEnabled = false
+        librarySpinner.isEnabled = false
+        delaySpinner.isEnabled = false
+        methodSpinner.isEnabled = false
+        radioGroup.isEnabled = false
+        saveSelectedLibrary(selectedLibrary.name)
+        loginButton.text = "LOADING..."
+        proceedWithDownload()
     }
 
     private fun showToast(message: String) {
@@ -673,9 +651,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun resetLoginState(message: String) {
         showToast(message)
-        loginButton.text = "LOGIN"
+        isLoadingLibrary = false
+        loginButton.text = "RETRY LOAD"
         loginButton.isEnabled = true
-        licenseKeyInput.isEnabled = true
         librarySpinner.isEnabled = true
         delaySpinner.isEnabled = true
         methodSpinner.isEnabled = true
@@ -701,12 +679,14 @@ class MainActivity : AppCompatActivity() {
                     } else {
                         lifecycleScope.launch(Dispatchers.Main) {
                             delay(2500)
+                            isLoadingLibrary = false
                             loginButton.text = "INJECT"
                             showToast("Ready to inject")
                             loginButton.isEnabled = true
                             radioGroup.isEnabled = true
                             delaySpinner.isEnabled = true
                             methodSpinner.isEnabled = true
+                            librarySpinner.isEnabled = true
                             isReadyToInject = true
                         }
                     }
@@ -715,6 +695,8 @@ class MainActivity : AppCompatActivity() {
                     isReadyToInject = false
                 }
             }
+        } else {
+            resetLoginState("VPN detected — disable VPN to download")
         }
     }
 

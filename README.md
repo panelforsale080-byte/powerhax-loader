@@ -42,9 +42,8 @@ Android **8+** (minSdk 28). Internet required.
 1. Open the app (splash → main screen).
 2. Allow **notifications** if asked.
 3. Pick a **library / game** from the list (drawer / spinner). Maintenance entries are blocked.
-4. Enter your **license key** (panel key for that library).
-5. Tap **LOGIN** — app validates against the panel (`PANEL_URL` in code) and downloads the cheat library if needed.
-6. When the button shows **INJECT**:
+4. App **auto-downloads** the selected library (no license key).
+5. When the button shows **INJECT**:
    - Choose **Auto** (launch game then inject after delay) or **Manual**.
    - Set **delay** and **injection method** (root / non-root options depend on device).
 7. Tap **INJECT** and wait for **Injection completed**.

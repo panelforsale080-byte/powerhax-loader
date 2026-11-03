@@ -176,19 +176,22 @@
                     android:textStyle="bold" />
 
                 <TextView
+                    android:id="@+id/license_key_label"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="18dp"
                     android:text="LICENSE KEY"
                     android:textColor="@color/loader_text_secondary"
                     android:textSize="10sp"
-                    android:textStyle="bold" />
+                    android:textStyle="bold"
+                    android:visibility="gone" />
 
                 <com.google.android.material.textfield.TextInputLayout
                     android:id="@+id/input_layout"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
+                    android:visibility="gone"
                     android:hint="Enter your license key..."
                     app:boxBackgroundColor="#10151D"
                     app:boxCornerRadiusBottomEnd="14dp"
@@ -216,7 +219,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="54dp"
                     android:layout_marginTop="13dp"
-                    android:text="LOGIN"
+                    android:text="LOAD LIBRARY"
                     android:textColor="#10151D"
                     android:textSize="14sp"
                     android:textStyle="bold"
