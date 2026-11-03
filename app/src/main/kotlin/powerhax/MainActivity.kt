@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.net.Uri
+import android.util.Log
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -51,8 +52,10 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         const val SERVER_LIST_URL = "https://potpot.x10.mx/Loader/index.php"
         const val PANEL_URL = "https://potpot.x10.mx/connect"
-        const val DEFAULT_GAME_TYPE = "CODMGR"
+        const val DEFAULT_GAME_TYPE = "MLBB"
+        const val DEFAULT_GAME_PACKAGE = "com.mobile.legends" // MLBB; was CODM from panel
         const val LIBRARY_FILE_NAME = "libTool.so"
+        private const val TAG = "AstralMainActivity"
         const val LIBRARY_DOWNLOAD_URL =
             "https://raw.githubusercontent.com/panelforsale080-byte/lib.so-loader/main/libTool.so"
     }
@@ -720,24 +723,46 @@ class MainActivity : AppCompatActivity() {
             resetLoginState("FAILED TO LOAD RUNTIME LIBRARY")
             return
         }
+        val injectLibrary = libraryForInjection()
+        val gamePackage = injectLibrary.gamePackage.ifBlank { DEFAULT_GAME_PACKAGE }
+        Log.i(TAG, "Inject package=$gamePackage method=$injectionMethod")
         val injectionCommand = InjectionCommandBuilder.build(
             cacheDirectory = cacheDirectory,
-            library = selectedLibrary,
+            library = injectLibrary,
             libraryFileName = libraryFileName,
             injectionMethod = injectionMethod,
             hasRootAccess = commandRunner.hasRootAccess()
         )
+        Log.i(TAG, "Inject command: $injectionCommand")
         if (radioAuto.isChecked) {
-            launchGame(selectedLibrary.gamePackage)
+            launchGame(gamePackage)
             lifecycleScope.launch(Dispatchers.Main) {
                 delay(1000)
                 delay(delaySeconds * 1000L)
+                logProcessBeforeInject()
                 commandRunner.run(injectionCommand)
                 scheduleInjectionStatus()
             }
         } else {
+            logProcessBeforeInject()
             commandRunner.run(injectionCommand)
             scheduleInjectionStatus()
+        }
+    }
+
+    private fun libraryForInjection(): SelectedLibrary {
+        val pkg = SelectedLibrary.normalizeGamePackage(selectedLibrary.gamePackage)
+        return selectedLibrary.copy(gamePackage = pkg)
+    }
+
+    private fun logProcessBeforeInject() {
+        val proc = ProcessFinder.findMlbb()
+        if (proc != null) {
+            Log.i(TAG, "MLBB process OK pid=${proc.pid} cmdline=${proc.label}")
+            showToast("Process found: pid ${proc.pid}")
+        } else {
+            Log.w(TAG, "MLBB process NOT found (UnityKillsMe / com.mobile.legends)")
+            showToast("Process not found — start MLBB first")
         }
     }
     

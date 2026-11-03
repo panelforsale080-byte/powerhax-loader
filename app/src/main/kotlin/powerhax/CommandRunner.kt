@@ -1,6 +1,12 @@
 package astral.loader
 
+import android.util.Log
+
 class CommandRunner {
+
+    private companion object {
+        const val TAG = "AstralCommandRunner"
+    }
 
     fun hasRootAccess(): Boolean {
         return try {
@@ -24,10 +30,14 @@ class CommandRunner {
                     .redirectErrorStream(true)
                     .start()
 
-                process.inputStream
+                val out = process.inputStream
                     .bufferedReader()
                     .use { it.readText() }
-                process.waitFor()
+                if (out.isNotBlank()) {
+                    Log.i(TAG, "shell out: $out")
+                }
+                val code = process.waitFor()
+                Log.i(TAG, "shell exit=$code")
             } catch (_: Exception) {
             }
         }.start()

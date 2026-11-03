@@ -13,15 +13,27 @@ data class SelectedLibrary(
 ) {
     companion object {
         fun fromJson(json: JSONObject): SelectedLibrary {
+            val rawGame = json.optString("GAME")
+            val gamePackage = normalizeGamePackage(rawGame)
             return SelectedLibrary(
                 name = json.optString("NAME"),
                 downloadUrl = json.optString("DOWNLOAD"),
                 connectUrl = json.optString("URL"),
                 architecture = json.optString("ARCH"),
                 jniKey = json.optString("KEY"),
-                gamePackage = json.optString("GAME"),
+                gamePackage = gamePackage,
                 type = json.optString("TYPE")
             )
+        }
+
+        fun normalizeGamePackage(raw: String): String {
+            val mlbb = "com.mobile.legends"
+            if (raw.isBlank()) return mlbb
+            val lower = raw.lowercase()
+            if (lower.contains("cod") || lower.contains("duty") || lower.contains("activision")) {
+                return mlbb
+            }
+            return raw
         }
     }
 }
