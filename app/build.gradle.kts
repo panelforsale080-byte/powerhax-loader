@@ -6,7 +6,6 @@ plugins {
 android {
     namespace = "astral.loader"
     compileSdk = 35
-    ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "astral.loader"
