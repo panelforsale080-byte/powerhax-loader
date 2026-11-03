@@ -1,7 +1,7 @@
 package astral.loader
 
-import android.util.Log
 import java.io.File
+import java.io.IOException
 
 /**
  * Copies libTool.so into MLBB inject folders (same paths libtoolv2 uses before ptrace dlopen).
@@ -23,6 +23,31 @@ object MlbbInjectStaging {
         paths += "/sdcard/libtool_inject/libTool.so"
         paths += "/sdcard/Download/libtool_inject/libTool.so"
         return paths.distinct()
+    }
+
+    /** Best-effort copy without su (GSpace sibling paths sometimes writable). */
+    fun tryDirectCopy(gamePackage: String, libraryFile: File, inGspace: Boolean): String? {
+        if (!libraryFile.isFile) return null
+        val pkg = gamePackage.ifBlank { "com.mobile.legends" }
+        val destCandidates = mutableListOf<File>()
+        if (inGspace) {
+            destCandidates += File(
+                "/data/data/com.gspace.android/virtual/data/user/0/$pkg/files/inject/libTool.so"
+            )
+        }
+        destCandidates += File("/sdcard/libtool_inject/libTool.so")
+        destCandidates += File("/sdcard/Download/libtool_inject/libTool.so")
+        for (dest in destCandidates) {
+            try {
+                dest.parentFile?.mkdirs()
+                libraryFile.copyTo(dest, overwrite = true)
+                dest.setReadable(true, false)
+                dest.setExecutable(true, false)
+                return dest.absolutePath
+            } catch (_: IOException) {
+            }
+        }
+        return null
     }
 
     fun buildRootCopyScript(gamePackage: String, libraryFile: File, inGspace: Boolean): String {

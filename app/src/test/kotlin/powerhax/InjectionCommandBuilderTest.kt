@@ -28,4 +28,17 @@ class InjectionCommandBuilderTest {
         assertTrue(command.contains("libTool.so"))
         assertTrue(command.contains("test-key"))
     }
+
+    @Test
+    fun gspacePrefersUnityCmdlineBeforePid() {
+        val unity = ProcessFinder.Target(29664, "com.mobile.legends:UnityKillsMe")
+        val attempts = InjectionCommandBuilder.injectTargetAttempts(
+            unity = unity,
+            gamePackage = "com.mobile.legends",
+            inGspace = true,
+            preferredTarget = null
+        )
+        assertEquals("com.mobile.legends:UnityKillsMe", attempts.first())
+        assertTrue(attempts.indexOf("29664") > attempts.indexOf("com.mobile.legends:UnityKillsMe"))
+    }
 }

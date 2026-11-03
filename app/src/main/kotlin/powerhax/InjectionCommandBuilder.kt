@@ -55,6 +55,36 @@ object InjectionCommandBuilder {
         return gamePackage
     }
 
+    /**
+     * GSpace: numeric PID often makes libloader exit=1; cmdline `pkg:UnityKillsMe` works (field logs).
+     */
+    fun injectTargetAttempts(
+        unity: ProcessFinder.Target,
+        gamePackage: String,
+        inGspace: Boolean,
+        preferredTarget: String?
+    ): List<String> {
+        val attempts = linkedSetOf<String>()
+        val cmdline = unity.label.trim()
+        if (!preferredTarget.isNullOrBlank()) {
+            attempts += preferredTarget.trim()
+        }
+        if (inGspace && cmdline.contains(':')) {
+            attempts += cmdline
+            attempts += gamePackage
+            attempts += unity.pid.toString()
+        } else if (cmdline.contains(':')) {
+            attempts += cmdline
+            attempts += unity.pid.toString()
+            attempts += gamePackage
+        } else {
+            attempts += unity.pid.toString()
+            if (cmdline.isNotBlank()) attempts += cmdline
+            attempts += gamePackage
+        }
+        return attempts.toList()
+    }
+
     fun methodDescription(injectionMethod: String, hasRoot: Boolean): String {
         return when (injectionMethod) {
             "2" -> "METHOD 2 — no -root (GSpace / virtual / non-root inject)"

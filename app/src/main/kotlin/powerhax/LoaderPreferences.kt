@@ -25,11 +25,19 @@ class LoaderPreferences(context: Context) {
         preferences.edit().putString(KEY_METHOD, method).apply()
     }
 
+    fun getPreferredInjectTarget(): String? =
+        preferences.getString(KEY_INJECT_TARGET, null)?.takeIf { it.isNotBlank() }
+
+    fun savePreferredInjectTarget(target: String) {
+        preferences.edit().putString(KEY_INJECT_TARGET, target).apply()
+    }
+
     private companion object {
         const val PREFERENCES_NAME = "loaderPrefs"
         const val KEY_MODE = "injection_mode"
         const val KEY_DELAY = "injection_delay"
         const val KEY_METHOD = "injection_method"
+        const val KEY_INJECT_TARGET = "inject_target_winning"
         const val MODE_AUTO = "auto"
         const val DEFAULT_METHOD = "2"
     }

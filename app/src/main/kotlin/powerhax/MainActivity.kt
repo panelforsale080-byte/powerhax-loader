@@ -813,17 +813,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun injectTargetAttempts(unity: ProcessFinder.Target, gamePackage: String): List<String> {
-        val attempts = linkedSetOf<String>()
-        attempts += unity.pid.toString()
-        if (unity.label.contains(':')) {
-            attempts += unity.label.trim()
-        }
-        attempts += InjectionCommandBuilder.resolveInjectTarget(unity, gamePackage)
-        attempts += gamePackage
-        return attempts.toList()
-    }
-
     private suspend fun runInjectPipeline(
         libraryFile: File,
         cacheDirectory: File,
@@ -837,8 +826,9 @@ class MainActivity : AppCompatActivity() {
         val gspace = withContext(Dispatchers.IO) { MlbbInjectStaging.detectGspaceFromProc() }
         if (gspace) {
             injectUiLog.line("GSpace/virtual environment detected")
+            injectUiLog.line("GSpace: use -target com.mobile.legends:UnityKillsMe (not PID)")
             if (injectionMethod == "1") {
-                injectUiLog.line("Use METHOD 2 here (loader often rejects -root in virtual)")
+                injectUiLog.line("Tip: tap method label → METHOD 2 if inject fails")
             }
         }
 
@@ -876,20 +866,34 @@ class MainActivity : AppCompatActivity() {
         injectUiLog.line("Unity target: pid=${targetUnity.pid}")
         injectUiLog.line("Cmdline: ${targetUnity.label}")
 
-        val stageScript = MlbbInjectStaging.buildRootCopyScript(gamePackage, libraryFile, gspace)
-        if (stageScript.isNotBlank()) {
-            injectUiLog.line("Staging libTool.so to game inject dirs…")
-            val stageResult = withContext(Dispatchers.IO) { commandRunner.runSync(stageScript) }
-            injectUiLog.line("Stage exit=${stageResult.exitCode}")
+        val directStage = withContext(Dispatchers.IO) {
+            MlbbInjectStaging.tryDirectCopy(gamePackage, libraryFile, gspace)
+        }
+        if (directStage != null) {
+            injectUiLog.line("Staged (app): $directStage")
         } else {
-            injectUiLog.line("Skip staging (missing lib file)")
+            injectUiLog.line("App staging skipped (normal in GSpace without root)")
         }
 
-        val targets = injectTargetAttempts(targetUnity, gamePackage)
+        val stageScript = MlbbInjectStaging.buildRootCopyScript(gamePackage, libraryFile, gspace)
+        if (stageScript.isNotBlank() && hasRoot) {
+            injectUiLog.line("Staging libTool.so (root)…")
+            val stageResult = withContext(Dispatchers.IO) { commandRunner.runSync(stageScript) }
+            injectUiLog.line("Root stage exit=${stageResult.exitCode}")
+        }
+
+        val preferred = loaderPreferences.getPreferredInjectTarget()
+        val targets = InjectionCommandBuilder.injectTargetAttempts(
+            unity = targetUnity,
+            gamePackage = gamePackage,
+            inGspace = gspace,
+            preferredTarget = preferred
+        )
         injectUiLog.line("libloader targets: ${targets.joinToString(" → ")}")
 
         var loaded = false
         var lastExit = -1
+        var winningTarget: String? = null
         for (target in targets) {
             val cmd = InjectionCommandBuilder.build(
                 cacheDirectory = cacheDirectory,
@@ -923,16 +927,20 @@ class MainActivity : AppCompatActivity() {
             }
             loaded = withContext(Dispatchers.IO) { InjectVerifier.isLibLoaded(verifyPid) }
             if (loaded) {
+                winningTarget = target
                 injectUiLog.line("OK: libTool.so in /proc/$verifyPid/maps")
                 break
             }
             injectUiLog.line("libTool not in maps for pid $verifyPid — try next target")
         }
 
+        winningTarget?.let { loaderPreferences.savePreferredInjectTarget(it) }
+
         withContext(Dispatchers.Main) {
             when {
                 loaded -> {
                     injectUiLog.line("=== INJECT SUCCESS ===")
+                    winningTarget?.let { injectUiLog.line("Saved target for next time: $it") }
                     showToast("Inject OK — Unity process")
                     loginButton.text = "RE-INJECT"
                 }
