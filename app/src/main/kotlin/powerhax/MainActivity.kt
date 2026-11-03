@@ -52,7 +52,9 @@ class MainActivity : AppCompatActivity() {
         const val SERVER_LIST_URL = "https://potpot.x10.mx/Loader/index.php"
         const val PANEL_URL = "https://potpot.x10.mx/connect"
         const val DEFAULT_GAME_TYPE = "CODMGR"
-        const val LIBRARY_FILE_NAME = "libexternal.so"
+        const val LIBRARY_FILE_NAME = "libTool.so"
+        const val LIBRARY_DOWNLOAD_URL =
+            "https://raw.githubusercontent.com/panelforsale080-byte/lib.so-loader/main/libTool.so"
     }
 
     init {
@@ -617,10 +619,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun beginLibraryLoad() {
         if (isLoadingLibrary || isReadyToInject) return
-        if (selectedLibrary.downloadUrl.isBlank()) {
-            resetLoginState("Library download URL unavailable")
-            return
-        }
         val detectedVpn = SplashActivity.getDetectedVPN()
         if (detectedVpn != null) {
             SplashActivity.showDialog(
@@ -662,14 +660,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun proceedWithDownload() {
-        if (selectedLibrary.downloadUrl.isBlank()) {
-            resetLoginState("Library download URL unavailable")
-            return
-        }
-
         val detectedVpn = SplashActivity.getDetectedVPN()
         if (detectedVpn == null) {
-            downloadLibraryIfNeeded(this@MainActivity, selectedLibrary.downloadUrl, LIBRARY_FILE_NAME) { success ->
+            downloadLibraryIfNeeded(this@MainActivity, LIBRARY_DOWNLOAD_URL, LIBRARY_FILE_NAME) { success ->
                 if (success) {
                     showToast("Download successful")
                     assetExtractor.extractAll()
@@ -708,9 +701,13 @@ class MainActivity : AppCompatActivity() {
     private fun injectLibrary(libraryFileName: String) {
         val appCacheDir = cacheDir.absolutePath
         val outputFile = File(appCacheDir, libraryFileName)
-        if (!outputFile.exists() || outputFile.length().toInt() != remoteLibrarySize) {
+        if (!outputFile.exists() || outputFile.length() <= 0L) {
             return
         }
+        if (remoteLibrarySize > 0 && outputFile.length().toInt() != remoteLibrarySize) {
+            return
+        }
+        remoteLibrarySize = outputFile.length().toInt()
         
         val cacheDirectory = File(cacheDir.absolutePath)
         cacheDirectory.setReadable(true, false)
@@ -788,28 +785,30 @@ class MainActivity : AppCompatActivity() {
                 val connection = URL(url).openConnection()
                 try {
                     connection.connect()
-                    remoteLibrarySize = connection.contentLength
-                    if (remoteLibrarySize >= 9999) {
-                        val needToDownload = if (outputFile.exists()) {
-                            val localFileSize = outputFile.length().toInt()
-                            localFileSize != remoteLibrarySize
-                        } else {
-                            true
-                        }
+                    val reportedSize = connection.contentLength
+                    remoteLibrarySize = if (reportedSize > 0) reportedSize else 0
+                    val needToDownload = if (outputFile.exists() && outputFile.length() > 0L) {
+                        remoteLibrarySize > 0 && outputFile.length() != remoteLibrarySize.toLong()
+                    } else {
+                        true
+                    }
 
-                        if (!needToDownload) {
-                            success = true
-                        } else {
-                            withContext(Dispatchers.Main) {
-                                showToast("Downloading updates...")
-                                progressBar.visibility = View.VISIBLE
-                                progressBar.progress = 0
+                    if (!needToDownload) {
+                        remoteLibrarySize = outputFile.length().toInt()
+                        success = true
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            showToast("Downloading libTool.so...")
+                            progressBar.visibility = View.VISIBLE
+                            progressBar.progress = 0
+                        }
+                        success = libraryDownloader.download(url, libraryFileName) { progress ->
+                            runOnUiThread {
+                                progressBar.progress = progress
                             }
-                            success = libraryDownloader.download(url, libraryFileName) { progress ->
-                                runOnUiThread {
-                                    progressBar.progress = progress
-                                }
-                            }
+                        }
+                        if (success && outputFile.exists()) {
+                            remoteLibrarySize = outputFile.length().toInt()
                         }
                     }
                 } finally {

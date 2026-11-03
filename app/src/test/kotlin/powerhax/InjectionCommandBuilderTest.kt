@@ -18,13 +18,13 @@ class InjectionCommandBuilderTest {
         val command = InjectionCommandBuilder.build(
             cacheDirectory = File("cache"),
             library = library,
-            libraryFileName = "libexternal.so",
+            libraryFileName = "libTool.so",
             injectionMethod = "1",
             hasRootAccess = false
         )
 
         assertTrue(command.contains("com.example.game"))
-        assertTrue(command.contains("libexternal.so"))
+        assertTrue(command.contains("libTool.so"))
         assertTrue(command.contains("test-key"))
     }
 }

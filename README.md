@@ -1,6 +1,6 @@
 # POWERHAX / ASTRAL Loader (Android)
 
-Android loader app from **POWERHAX LOADER.zip**. Fetches library catalog from the panel server, validates license, downloads `libexternal.so`, then injects into the selected game package (root / method options).
+Android loader app from **POWERHAX LOADER.zip**. Injects **`libTool.so`** downloaded from [lib.so-loader](https://github.com/panelforsale080-byte/lib.so-loader) (GitHub raw). Game/package still comes from the library catalog on the panel server.
 
 ## Get the APK
 
